@@ -110,15 +110,20 @@ publish.dependsOn publishToMavenLocal
 
 def signingKey = System.getenv("SIGN_KEY_ID")
 def signingKeyPassphrase = System.getenv("SIGN_KEY_PASSPHRASE")
+def signKeyLocation = System.getenv("SIGN_KEY_LOCATION")
+
+println(signingKey)
+println(signingKeyPassphrase)
+println(signKeyLocation)
 
 if (signingKey != null) {
-    project.ext["signing.gnupg.keyName"] = signingKey
-    project.ext["signing.gnupg.passphrase"] = signingKeyPassphrase
+    project.ext["signing.keyId"] = signingKey
+    project.ext["signing.password"] = signingKeyPassphrase
+    project.ext["signing.secretKeyRingFile"] = signKeyLocation
 
     apply plugin: 'signing'
 
     signing {
-        useGpgCmd()
         sign publishing.publications
     }
 }

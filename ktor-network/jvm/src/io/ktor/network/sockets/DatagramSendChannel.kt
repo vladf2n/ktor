@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.*
 import java.net.*
 import java.nio.*
 import java.nio.channels.*
+import kotlin.coroutines.*
 
 private val CLOSED: (Throwable?) -> Unit = {}
 private val CLOSED_INVOKED: (Throwable?) -> Unit = {}
@@ -78,18 +79,19 @@ internal class DatagramSendChannel(
 
     override suspend fun send(element: Datagram) {
         lock.withLock {
-            DefaultDatagramByteBufferPool.useInstance { buffer ->
-                element.writeMessageTo(buffer)
+            withContext(Dispatchers.IO) {
+                DefaultDatagramByteBufferPool.useInstance { buffer ->
+                    element.writeMessageTo(buffer)
 
-                val rc = channel.send(buffer, element.address)
-                if (rc != 0) {
-                    socket.interestOp(SelectInterest.WRITE, false)
-                    return
+                    val rc = channel.send(buffer, element.address)
+                    if (rc != 0) {
+                        socket.interestOp(SelectInterest.WRITE, false)
+                        return@useInstance
+                    }
+
+                    sendSuspend(buffer, element.address)
                 }
-
-                sendSuspend(buffer, element.address)
             }
-
         }
     }
 

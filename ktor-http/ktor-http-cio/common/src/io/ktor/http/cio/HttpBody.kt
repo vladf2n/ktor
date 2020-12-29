@@ -8,6 +8,7 @@ import io.ktor.http.*
 import io.ktor.http.cio.internals.*
 import io.ktor.util.*
 import io.ktor.utils.io.*
+import kotlin.native.concurrent.*
 
 /**
  * @return `true` if an http upgrade is expected accoding to request [method], [upgrade] header value and
@@ -40,7 +41,11 @@ public fun expectHttpBody(
     connectionOptions: ConnectionOptions?,
     contentType: CharSequence?
 ): Boolean {
-    if (transferEncoding != null) return true
+    if (transferEncoding != null) {
+        // verify header value
+        isTransferEncodingChunked(transferEncoding)
+        return true
+    }
     if (contentLength != -1L) return contentLength > 0L
     if (contentType != null) return true
 
@@ -77,12 +82,8 @@ public suspend fun parseHttpBody(
     out: ByteWriteChannel
 ) {
     if (transferEncoding != null) {
-        when {
-            transferEncoding.equalsLowerCase(other = "chunked") -> return decodeChunked(input, out)
-            transferEncoding.equalsLowerCase(other = "identity") -> {
-                // do nothing special
-            }
-            else -> throw IllegalArgumentException("Unsupported transfer-encoding $transferEncoding")
+        if (isTransferEncodingChunked(transferEncoding)) {
+            return decodeChunked(input, out)
         }
     }
 
@@ -121,3 +122,32 @@ public suspend fun parseHttpBody(
     ConnectionOptions.parse(headers["Connection"]),
     input, out
 )
+
+private fun isTransferEncodingChunked(transferEncoding: CharSequence): Boolean {
+    if (transferEncoding.equalsLowerCase(other = "chunked")) {
+        return true
+    }
+    if (transferEncoding.equalsLowerCase(other = "identity")) {
+        return false
+    }
+
+    var chunked = false
+    transferEncoding.split(",").forEach {
+        when (val name = it.trim().toLowerCase()) {
+            "chunked" -> {
+                if (chunked) {
+                    throw IllegalTransferEncodingException("Double-chunked TE is not supported: $transferEncoding")
+                }
+                chunked = true
+            }
+            "identity" -> {
+                // ignore this token
+            }
+            else -> throw IllegalTransferEncodingException("Unsupported transfer encoding $name")
+        }
+    }
+
+    return chunked
+}
+
+private class IllegalTransferEncodingException(override val message: String) : IllegalArgumentException(message)
